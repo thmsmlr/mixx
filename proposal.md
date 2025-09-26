@@ -35,7 +35,7 @@
 
 ### CLI & UX Surface
 - Primary task: `Mix.Tasks.X` exposed as `mix x` with subcommands accessed through the dot operator:
-  - `mix x <package> [task] [args...]` – default command that resolves the package and executes a Mix task (default task determined per package).
+  - `mix x <package> [task] [args...]` – default command that resolves the package and executes `<app>.run` when no task is provided.
   - `mix x.help <package> [task]` – print remote package task help (downloads if needed).
 - Shortcut aliases inspired by the original proposal:
   - Support `package@version` syntax, `owner/package`, or explicit source options (`--hex`, `--git`, `--path`).
@@ -58,11 +58,11 @@
 
 ### Task Dispatch
 - After installation, mixx loads the remote project's code path (handled by `Mix.install/2`) and executes:
-  - `Mix.Task.rerun/2` with the remote task name resolved from CLI input (default task is package-specific, with overrides allowed via `--task`).
+- `Mix.Task.rerun/2` with the remote task name resolved from CLI input (`<app>.run` when no explicit task is given, or an override via `--task`).
 - Provide structured logging around download, compilation, and execution phases to match user expectations.
 
 ### Stretch Goal: Caching & State Management
-- Maintain a mixx manifest under `MIX_HOME/mixx/manifest.json` capturing resolved versions, install hashes, timestamps, and discovered default tasks.
+- Maintain a mixx manifest under `MIX_HOME/mixx/manifest.json` capturing resolved versions, install hashes, timestamps, and observed task entries.
 - Offer commands to list (`mix x.cache ls`) and clean (`mix x.cache prune [package]`) cached installs once the manifest exists.
 - Investigate Hex API integrations and heuristics to reuse previously fetched packages without rerunning compiles.
 
@@ -108,7 +108,7 @@
 
 ## Open Questions & Next Steps
 - Should mixx support remote mix tasks that expect project context (e.g., Phoenix generators)? Investigate isolating current working directory vs. user project directory to avoid side effects.
-- Determine how to surface package-defined aliases (mapping package names to default tasks) without a central registry—consider shipping a curated defaults map or reading Hex package metadata (e.g., package docs).
+- Determine how to surface package-defined aliases (mapping package names to custom tasks) without a central registry—consider shipping a curated overrides map or reading Hex package metadata (e.g., package docs).
 - Explore concurrency: allow parallel installs for multiple packages in a single command? Possibly defer to future work.
 
 ## Appendices

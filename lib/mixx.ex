@@ -103,6 +103,7 @@ defmodule Mixx do
 
     Notes:
       mixx infers Git repositories and local paths from the first argument when present.
+      mixx runs <app>.run when no explicit task is provided.
     """
   end
 
@@ -206,7 +207,7 @@ defmodule Mixx do
          name: source.name,
          app: app,
          dependency: dependency,
-         default_task: default_task(source.name)
+         default_task: default_task(app)
        }}
     end
   end
@@ -442,12 +443,11 @@ defmodule Mixx do
 
   defp default_task(nil), do: nil
 
-  defp default_task(name) do
-    name
-    |> package_basename()
-    |> String.replace("-", "_")
-    |> String.replace("/", ".")
+  defp default_task(app) when is_atom(app) do
+    app
+    |> Atom.to_string()
     |> String.replace("_", ".")
+    |> Kernel.<>(".run")
   end
 
   defp package_basename(name) do

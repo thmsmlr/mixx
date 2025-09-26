@@ -14,7 +14,7 @@ mix x git+https://github.com/acme/tooling.git#main lint
 
 - **One-off productivity** – fetch a Hex package, Git repo, or local path and execute its Mix tasks instantly.
 - **Zero project churn** – no need to edit `mix.exs`; mixx installs dependencies ephemerally via `Mix.install/2`.
-- **Smart defaults** – if you skip the task argument we derive the best guess from the package name.
+- **Consistent defaults** – skip the task argument and mixx invokes `<app>.run` for you.
 
 mixx targets Elixir ≥ 1.14 (validated on 1.18). Once installed, `mix x` is available globally through your `~/.mix/archives` directory.
 
@@ -28,6 +28,18 @@ mix x <package> [task] [args...]
 - If `<task>` is omitted we call the package’s default Mix task (derived from the package name). Override with `--task some.other.task` when needed.
 - Extra `[args...]` are forwarded untouched to the remote Mix task.
 
+#### Default Task Convention
+
+When you skip the task argument, mixx calls `<app>.run`, where `<app>` is the inferred OTP application name (package name with hyphens turned into underscores). For example:
+
+```
+sobelow      ➜ sobelow.run
+phx_new      ➜ phx_new.run
+mixx-tooling ➜ mixx_tooling.run
+```
+
+To plug in seamlessly, expose a Mix task at `Mix.Tasks.<App>.Run`. If your package prefers a different entrypoint, document it and have users pass `--task` explicitly.
+
 ### Options
 
 - `--task some.task` – run a specific Mix task without relying on default inference.
@@ -37,9 +49,9 @@ mix x <package> [task] [args...]
 ### Examples
 
 ```bash
-mix x sobelow --version              # Hex package from the public registry
-mix x git@github.com:acme/tool.git   # Git SSH URL with inferred default task
-mix x ../generators setup            # Local path for in-house tooling
+mix x sobelow --task sobelow --version   # Hex package, explicit task override
+mix x git@github.com:acme/tool.git       # Git SSH URL, runs acme_tool.run
+mix x ../generators setup                # Local path for in-house tooling
 mix x some_pkg --task foo.bar --dry-run
 ```
 

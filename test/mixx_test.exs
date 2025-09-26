@@ -57,9 +57,9 @@ defmodule MixxTest do
 
   @tag :integration
   @tag timeout: 240_000
-  test "installs sobelow package and delegates to default task" do
+  test "installs sobelow package when explicit task provided" do
     capture_io(fn ->
-      assert :ok == Mixx.run(["sobelow", "--version"])
+      assert :ok == Mixx.run(["sobelow", "--task", "sobelow", "--version"])
     end)
   end
 end
