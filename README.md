@@ -1,77 +1,71 @@
-# MIXX
+# mixx
 
-MIXX brings `mix x` to any Elixir workspace: run Mix tasks from Hex packages on demand, without adding them to your project or installing them globally.
+Run any Mix task on demand without wiring dependencies into your project.
 
-## Getting Started (Users)
+```bash
+mix archive.install hex mixx
+mix x sobelow --version
+mix x phx_new new demo_app
+mix x ./tooling/my_app setup
+mix x git+https://github.com/acme/tooling.git#main lint
+```
 
-1. **Install the archive**
+## Why mixx?
 
-   ```bash
-   mix archive.install hex mixx
-   ```
+- **One-off productivity** – fetch a Hex package, Git repo, or local path and execute its Mix tasks instantly.
+- **Zero project churn** – no need to edit `mix.exs`; mixx installs dependencies ephemerally via `Mix.install/2`.
+- **Smart defaults** – if you skip the task argument we derive the best guess from the package name.
 
-   Until MIXX is published on Hex you can build from source instead:
+mixx targets Elixir ≥ 1.14 (validated on 1.18). Once installed, `mix x` is available globally through your `~/.mix/archives` directory.
 
-   ```bash
-   mix archive.build
-   mix archive.install ./mixx-0.1.0.ez --force
-   ```
+## Usage
 
-   MIXX targets Elixir ≥ 1.14 (tested on 1.18). The archive installs into `~/.mix/archives`, making `mix x` globally available.
+```
+mix x <package> [task] [args...]
+```
 
-2. **Run remote Mix tasks**
+- `<package>` accepts Hex names (`sobelow`), full Git URLs (with optional `#ref`), or filesystem paths. mixx infers the source automatically.
+- If `<task>` is omitted we call the package’s default Mix task (derived from the package name). Override with `--task some.other.task` when needed.
+- Extra `[args...]` are forwarded untouched to the remote Mix task.
 
-   ```bash
-   mix x sobelow --version
-   mix x phx_new new /tmp/demo_app --no-install
-   mix x some_pkg.custom.task arg1 arg2
-   ```
+### Options
 
-   The general shape is `mix x <package> [task] [args...]`. If you omit the task, MIXX will call the package’s default Mix task (derived from its name).
+- `--task some.task` – run a specific Mix task without relying on default inference.
+- `--force` – force `Mix.install/2` to refresh the cached install.
+- `-h`, `--help` – print the usage banner.
 
-3. **Useful switches**
+### Examples
 
-   - `--task some.task` — override the inferred Mix task
-   - `--force` — force `Mix.install/2` to rebuild the package
-   - `--git URL` / `--path PATH` — execute against a Git repo or local path instead of Hex
+```bash
+mix x sobelow --version              # Hex package from the public registry
+mix x git@github.com:acme/tool.git   # Git SSH URL with inferred default task
+mix x ../generators setup            # Local path for in-house tooling
+mix x some_pkg --task foo.bar --dry-run
+```
 
-If you encounter packages that require project context (e.g., Phoenix generators), run `mix x` from the directory you want those files written to.
+## Installation
+
+```bash
+mix archive.install hex mixx
+# or, from a local checkout
+mix archive.build
+mix archive.install ./mixx-0.1.0.ez --force
+```
 
 ## How It Works
 
-MIXX is delivered as a Mix archive (similar to `phx.new`). The `mix x` task:
+1. **Argument parsing** – we interpret options with `OptionParser`, infer the dependency source, and normalise package specs.
+2. **Temporary install** – `Mix.install/2` pulls the dependency into the Mix install cache inside a clean project stack.
+3. **Task dispatch** – we rerun the target Mix task via `Mix.Task.rerun/2`, surfacing its output exactly as if it were part of your project.
 
-- Parses CLI arguments with `OptionParser` to normalise package specs and switches.
-- Resolves the package into a `Mix.install/2` dependency tuple (Hex by default, or Git/Path when requested).
-- Invokes `Mix.install/2` inside a clean project stack, ensuring required runtime applications start and the dependency is compiled.
-- Reruns the target Mix task with `Mix.Task.rerun/2`, so any `mix` aliases or environment configuration behave as expected.
+Behind the scenes mixx primes Hex’s solver protocols to avoid first-run latency and keeps installs isolated so you can safely experiment.
 
-Stretch goals (caching manifests, offline reuse, escript execution) are outlined in `proposal.md` and not part of the initial release yet.
+## Contributing
 
-## Contributing & Development Setup
+```bash
+mix test
+mix test --include integration   # exercises remote installs
+mix run -e 'Mixx.run(["sobelow", "--version"])'
+```
 
-1. **Clone the repo and install Elixir ≥ 1.14.** No extra dependencies are required.
-2. **Run the test suite**
-
-   ```bash
-   mix test             # unit tests only
-   mix test --include integration  # exercises real Mix.install flows
-   ```
-
-3. **Experiment locally**
-
-   ```bash
-   mix run -e 'Mixx.run(["sobelow", "--version"])'
-   ```
-
-4. **Build and try the archive**
-
-   ```bash
-   mix archive.build
-   mix archive.install ./mixx-0.1.0.ez --force
-   mix x sobelow --version
-   ```
-
-5. **Follow the roadmap in `proposal.md`** for upcoming tasks (caching manifest, `mix x.help`, documentation). Please coordinate in issues or PRs before tackling stretch goals.
-
-We welcome bug reports and contributions—open an issue describing the problem or proposed enhancement, and include reproduction steps where possible.
+Check `proposal.md` for the roadmap (cache management, `mix x.help`, offline reuse). Issues and pull requests are welcome—just describe the scenario and share repro steps when possible.

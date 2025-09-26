@@ -9,11 +9,12 @@ defmodule MixxTest do
     assert {:ok, %Mixx{package: "sobelow", task: nil, args: [], options: opts}} =
              Mixx.parse(["sobelow"])
 
-    assert opts[:hex] in [nil, true]
+    refute Keyword.has_key?(opts, :hex)
   end
 
   test "parses package with explicit task" do
-    assert {:ok, %Mixx{package: "sobelow", task: "report", args: ["--format", "json"], options: opts}} =
+    assert {:ok,
+            %Mixx{package: "sobelow", task: "report", args: ["--format", "json"], options: opts}} =
              Mixx.parse(["sobelow", "report", "--format", "json"])
 
     refute opts[:task]
@@ -48,9 +49,9 @@ defmodule MixxTest do
     assert message =~ "option --task expects a value"
   end
 
-  test "raises when conflicting sources provided" do
-    assert_raise Mix.Error, ~r/only one of --git or --path/, fn ->
-      Mixx.run(["--git", "https://example.com/repo.git", "--path", "./repo", "sobelow"])
+  test "errors on deprecated explicit source flags" do
+    assert_raise Mix.Error, ~r/invalid option\(s\): --git/, fn ->
+      Mixx.run(["--git", "https://example.com/repo.git", "sobelow"])
     end
   end
 

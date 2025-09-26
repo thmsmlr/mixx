@@ -1,6 +1,6 @@
 defmodule Mixx do
   @moduledoc """
-  Core MIXX functionality: argument parsing, usage banners, and execution plumbing
+  Core mixx functionality: argument parsing, usage banners, and execution plumbing
   for the `mix x` family of tasks. Runtime execution is currently stubbed while the
   rest of the proposal roadmap is implemented.
   """
@@ -25,9 +25,6 @@ defmodule Mixx do
   @option_spec [
     force: :boolean,
     help: :boolean,
-    hex: :boolean,
-    git: :string,
-    path: :string,
     task: :string
   ]
 
@@ -97,14 +94,15 @@ defmodule Mixx do
 
       mix x sobelow --version
       mix x phx_new new demo_app
+      mix x ./tooling/my_app setup
 
     Options:
       --task          Explicit task name when package defaults are unknown
       --force         Refresh cached install before executing remote task
-      --hex           Force Hex package resolution (default behaviour)
-      --git=<url>     Execute against a Git repo instead of Hex
-      --path=<path>   Execute against a local path instead of Hex
       -h, --help      Show this usage information
+
+    Notes:
+      mixx infers Git repositories and local paths from the first argument when present.
     """
   end
 
@@ -200,15 +198,15 @@ defmodule Mixx do
   defp normalize_option(_), do: nil
 
   defp resolve_spec(%__MODULE__{} = command) do
-    with {:ok, name, version} <- parse_package(command.package),
-         :ok <- validate_source_options(command.options),
-         {:ok, dependency} <- dependency_tuple(name, version, command.options) do
+    with {:ok, source} <- detect_source(command),
+         app <- package_to_app(source.name),
+         {:ok, dependency} <- dependency_tuple(source, app) do
       {:ok,
        %Spec{
-         name: name,
-         app: package_to_app(name),
+         name: source.name,
+         app: app,
          dependency: dependency,
-         default_task: default_task(name)
+         default_task: default_task(source.name)
        }}
     end
   end
@@ -232,33 +230,118 @@ defmodule Mixx do
     end
   end
 
-  defp validate_source_options(options) do
-    sources = Enum.filter([:git, :path], &Keyword.has_key?(options, &1))
+  defp detect_source(%__MODULE__{} = command) do
+    cond do
+      path_candidate?(command.package) ->
+        parse_path_source(command.package)
 
-    case sources do
-      [_single] -> :ok
-      [] -> :ok
-      _ -> {:error, "only one of --git or --path may be provided"}
+      git_candidate?(command.package) ->
+        parse_git_source(command.package)
+
+      true ->
+        parse_hex_source(command.package)
     end
   end
 
-  defp dependency_tuple(name, version, options) do
-    cond do
-      path = options[:path] ->
-        {:ok, {package_to_app(name), path: Path.expand(path)}}
+  defp path_candidate?(package) do
+    Path.type(package) == :absolute ||
+      String.starts_with?(package, "./") ||
+      String.starts_with?(package, "../") ||
+      String.contains?(package, "/") ||
+      File.dir?(Path.expand(package))
+  end
 
-      git = options[:git] ->
-        {:ok, {package_to_app(name), git: git} |> maybe_put_git_ref(version)}
+  defp git_candidate?(package) do
+    downcased = String.downcase(package)
+
+    cond do
+      String.starts_with?(downcased, "git@") ->
+        true
+
+      String.starts_with?(downcased, "git://") ->
+        true
+
+      String.starts_with?(downcased, "ssh://") ->
+        true
+
+      String.starts_with?(downcased, "git+https://") ->
+        true
+
+      String.starts_with?(downcased, "git+ssh://") ->
+        true
+
+      String.starts_with?(downcased, "https://") or String.starts_with?(downcased, "http://") ->
+        String.contains?(downcased, ".git") ||
+          String.contains?(downcased, "github.com") ||
+          String.contains?(downcased, "gitlab.com") ||
+          String.contains?(downcased, "bitbucket.org")
 
       true ->
-        app = package_to_app(name)
-        dependency = if version, do: {app, version}, else: app
-        {:ok, dependency}
+        false
+    end
+  end
+
+  defp dependency_tuple(%{type: :path, path: path}, app) do
+    {:ok, {app, path: Path.expand(path)}}
+  end
+
+  defp dependency_tuple(%{type: :git, url: url, ref: ref}, app) do
+    opts =
+      [git: url]
+      |> maybe_put_option(:ref, ref)
+
+    {:ok, {app, opts}}
+  end
+
+  defp dependency_tuple(%{type: :hex, version: version}, app) do
+    dependency = if version, do: {app, version}, else: app
+    {:ok, dependency}
+  end
+
+  defp maybe_put_option(opts, _key, nil), do: opts
+  defp maybe_put_option(opts, key, value), do: Keyword.put(opts, key, value)
+
+  defp parse_hex_source(package) do
+    with {:ok, name, version} <- parse_package(package) do
+      {:ok, %{type: :hex, name: name, version: version}}
+    end
+  end
+
+  defp parse_path_source(package) do
+    expanded = Path.expand(package)
+
+    if File.dir?(expanded) do
+      name = expanded |> Path.basename() |> String.trim_trailing(".git")
+      {:ok, %{type: :path, name: name, path: expanded}}
+    else
+      {:error, "local path #{inspect(package)} does not exist"}
+    end
+  end
+
+  defp parse_git_source(package) do
+    {url, ref} = split_git_ref(package)
+
+    if String.trim(url) == "" do
+      {:error, "invalid git URL #{inspect(package)}"}
+    else
+      name =
+        url
+        |> package_basename()
+        |> String.trim_trailing(".git")
+
+      {:ok, %{type: :git, name: name, url: url, ref: ref}}
+    end
+  end
+
+  defp split_git_ref(package) do
+    case String.split(package, "#", parts: 2) do
+      [url, ref] -> {url, String.trim(ref)}
+      [url] -> {url, nil}
     end
   end
 
   defp install_dependency(%Spec{} = spec, options) do
-    maybe_ensure_hex!(spec, options)
+    maybe_ensure_hex!(spec)
     info("Installing #{spec.name}")
 
     Mix.ProjectStack.on_clean_slate(fn ->
@@ -276,11 +359,17 @@ defmodule Mixx do
   defp put_option(opts, _key, nil), do: opts
   defp put_option(opts, key, value), do: Keyword.put(opts, key, value)
 
-  defp maybe_ensure_hex!(_spec, options) do
-    if options[:git] || options[:path] do
-      :ok
-    else
-      ensure_hex_installed()
+  defp maybe_ensure_hex!(%Spec{dependency: dependency}) do
+    case dependency do
+      {_, opts} when is_list(opts) ->
+        if Keyword.has_key?(opts, :git) || Keyword.has_key?(opts, :path) do
+          :ok
+        else
+          ensure_hex_installed()
+        end
+
+      _ ->
+        ensure_hex_installed()
     end
   end
 
@@ -364,15 +453,14 @@ defmodule Mixx do
   defp package_basename(name) do
     name
     |> String.trim()
+    |> String.trim_trailing("/")
     |> String.split("/", trim: true)
     |> List.last()
+    |> maybe_trim_git_suffix()
   end
 
-  defp maybe_put_git_ref({app, opts}, nil), do: {app, opts}
-
-  defp maybe_put_git_ref({app, opts}, version) do
-    {app, Keyword.put(opts, :ref, version)}
-  end
+  defp maybe_trim_git_suffix(nil), do: nil
+  defp maybe_trim_git_suffix(segment), do: String.trim_trailing(segment, ".git")
 
   defp format_args([]), do: ""
   defp format_args(args), do: " " <> Enum.join(args, " ")

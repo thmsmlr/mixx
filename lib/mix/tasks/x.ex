@@ -1,7 +1,7 @@
 defmodule Mix.Tasks.X do
   use Mix.Task
 
-  @shortdoc "Executes remote Mix tasks via MIXX"
+  @shortdoc "Executes remote Mix tasks via mixx"
   @moduledoc """
   Entry point for `mix x`. Delegates argument parsing and execution to `Mixx`.
   """
