@@ -5,6 +5,8 @@ defmodule Mixx do
   rest of the proposal roadmap is implemented.
   """
 
+  alias Mixx.ProtocolHotfix
+
   defmodule Spec do
     @moduledoc false
     @enforce_keys [:name, :app, :dependency, :default_task]
@@ -345,16 +347,55 @@ defmodule Mixx do
     maybe_ensure_hex!(spec)
     info("Installing #{spec.name}")
 
+    pre_paths = ProtocolHotfix.before_install()
+
     Mix.ProjectStack.on_clean_slate(fn ->
       Mix.install([spec.dependency], install_options(options))
     end)
 
+    ProtocolHotfix.after_install(pre_paths)
+
+    preload_applications(spec.app)
+
     :ok
+  end
+
+  defp preload_applications(app) when is_atom(app) do
+    preload_applications([app], MapSet.new())
+    :ok
+  end
+
+  defp preload_applications([], _visited), do: :ok
+
+  defp preload_applications([app | rest], visited) do
+    cond do
+      not is_atom(app) ->
+        preload_applications(rest, visited)
+
+      MapSet.member?(visited, app) ->
+        preload_applications(rest, visited)
+
+      true ->
+        _ = ensure_application_loaded(app)
+        modules = Application.spec(app, :modules) || []
+        Enum.each(modules, &Code.ensure_loaded?/1)
+        deps = Application.spec(app, :applications) || []
+        preload_applications(deps ++ rest, MapSet.put(visited, app))
+    end
+  end
+
+  defp ensure_application_loaded(app) do
+    case Application.load(app) do
+      {:error, {:already_loaded, _}} -> :ok
+      {:error, _} -> :ok
+      :ok -> :ok
+    end
   end
 
   defp install_options(options) do
     []
     |> put_option(:force, options[:force])
+    |> put_option(:consolidate_protocols, options[:consolidate_protocols])
   end
 
   defp put_option(opts, _key, nil), do: opts
@@ -411,8 +452,20 @@ defmodule Mixx do
 
   defp run_task(task, args) do
     ensure_task_available!(task)
-    Mix.Task.rerun(task, args)
-    :ok
+    Code.ensure_loaded?(Mixx.ProtocolRefresh)
+    Mix.Task.rerun("compile")
+    Mix.Task.rerun("compile.protocols")
+
+    ProtocolHotfix.before_task()
+
+    try do
+      Mix.Task.rerun(task, args)
+    rescue
+      _e in Protocol.UndefinedError ->
+        ProtocolHotfix.before_task()
+        Mix.Task.clear()
+        Mix.Task.rerun(task, args)
+    end
   end
 
   defp ensure_task_available!(task) do
